@@ -21,16 +21,30 @@ local windowWidth, windowHeight = 800, 600
 
 -- Load assets and initialize variables
 function love.load()
+    gameOver = false
     love.window.setTitle("Floppy Neck")
     crtShader = love.graphics.newShader("crt.glsl")
     canvas = love.graphics.newCanvas(windowWidth, windowHeight, { type = '2d', readable = true })
     love.window.setMode(windowWidth, windowHeight)
     background = love.graphics.newImage("background.jpg")
     scoreFont = love.graphics.newFont( "score_font.ttf" , 20)
+    music = love.audio.newSource("background.ogg", "stream")
+    fruitSounds = {
+        love.audio.newSource("fruit_one.wav", "static"),
+        love.audio.newSource("fruit_two.wav", "static"),
+        love.audio.newSource("fruit_trhee.wav", "static")
+    }
+
+    gameOverSound = love.audio.newSource("gameover.wav", "static")
+    gameOverSound:setVolume(0.2)
+
+    for _, sound in ipairs(fruitSounds) do
+        sound:setVolume(0.3)
+    end
 
     player = { name = "player head", width = 70, height = 70, collisionWidth = nil, collisionHeight = nil }
-    player.collisionWidth = player.width + 10
-    player.collisionHeight = player.height + 10
+    player.collisionWidth = player.width
+    player.collisionHeight = player.height
     playerHeadXSpawn = 150
     playerHeadYSpawn = 300
     playerNeckSegmentHeight = 40
@@ -44,7 +58,7 @@ function love.load()
     obstacles = {}
     obstacleTimer = 0
     obstacleInterval = 2
-    
+
     score = 0
 
     love.physics.setMeter(64)
@@ -96,8 +110,11 @@ function love.load()
     objects.roof.body = love.physics.newBody(world, windowWidth/2, -200) 
     objects.roof.shape = love.physics.newRectangleShape(windowWidth, 200)
     objects.roof.fixture = love.physics.newFixture(objects.roof.body, objects.roof.shape)
-    
+
     objects.headAnchorJointDestroyed = false
+
+    music:setVolume(0.2)
+    music:play()
 end
 
 function love.keypressed(key)
@@ -105,17 +122,17 @@ function love.keypressed(key)
     local headForce = 10000 + neckForceMultiplier * #objects.neckSegments
     local neckForce = 3000 + neckForceMultiplier * #objects.neckSegments
 
-    if key == "w"  then 
+    if key == "w" and gameOver == false then
         objects.head.body:applyForce(0, -headForce)
-    elseif key == "s"then
+    elseif key == "s" and gameOver == false then
         objects.head.body:applyForce(0, headForce)
     end
 
-    if key == "d" then
+    if key == "d" and gameOver == false then
         objects.neckSegments[#objects.neckSegments].body:applyForce(neckForce, 0)
     end
 
-    if key == "a" then
+    if key == "a" and gameOver == false then
         objects.neckSegments[#objects.neckSegments].body:applyForce(-neckForce, 0)
     end
 
@@ -150,9 +167,13 @@ end
 function love.update(dt)
     world:update(dt)
 
+    if not music:isPlaying( ) then
+		love.audio.play( music )
+	end
+
     -- obstacle
     obstacleTimer = obstacleTimer + dt
-    if obstacleTimer > obstacleInterval then
+    if obstacleTimer > obstacleInterval and gameOver == false then
         table.insert(obstacles, { name = "obstacle", x = 800, y = math.random(windowHeight - 200, 0), width = 30, height = 30 })
         obstacleTimer = 0
     end
@@ -166,14 +187,15 @@ function love.update(dt)
 
     for _, obstacle in ipairs(obstacles) do
         if checkCollisionObjectHead(obstacle, objects.head.body:getX(), objects.head.body:getY(), player.collisionWidth , player.collisionHeight) then
+            gameOverSound:play()
             -- love.load()
-            -- print ("collision with obstacle")
+            gameOver = true
         end
     end
 
     -- fruit
     fruitTimer = fruitTimer + dt
-    if fruitTimer > fruitInterval then
+    if fruitTimer > fruitInterval and gameOver == false then
         table.insert(fruits, { x = 800, y = math.random(windowHeight - 200, 0), width = 30, height = 30 })
         fruitTimer = 0
     end
@@ -191,6 +213,7 @@ function love.update(dt)
         if checkCollisionObjectHead(fruits[i], objects.head.body:getX(), objects.head.body:getY(), player.collisionWidth , player.collisionHeight) then
             table.remove(fruits, i)
             createNeckSegement()
+            fruitSounds[math.random(1, 3)]:play()
             score = score + 1
         end
     end
@@ -201,29 +224,32 @@ function love.draw()
 
     love.graphics.setCanvas(canvas)
     love.graphics.clear()
-
     love.graphics.setFont(scoreFont)
 
     local sx = love.graphics.getWidth() / background:getWidth()
     local sy = love.graphics.getHeight() / background:getHeight()
     love.graphics.draw(background,0,-100,sx, sy)
 
+    if gameOver then
+        love.graphics.setColor(0.5, 0.5, 0.5, 0.5) -- Set grey color with 50% transparency
+        love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color to white
+        love.graphics.print("Game Over", love.graphics.getWidth() / 2 - 100, love.graphics.getHeight() / 2 )
+        love.graphics.print("Press R to restart", love.graphics.getWidth() /2 - 100, love.graphics.getHeight() / 2 + 50)
+    end
 
     for _, segment in ipairs(objects.neckSegments) do
         love.graphics.draw( objects.neckSegments.image, segment.body:getX(), segment.body:getY(), segment.body:getAngle(), 0.05, 0.05, 500, 500, 0, 0 )
-        love.graphics.polygon("line", segment.body:getWorldPoints(segment.shape:getPoints()))
+        -- love.graphics.polygon("line", segment.body:getWorldPoints(segment.shape:getPoints()))
     end
 
-    love.graphics.polygon("line", objects.head.body:getWorldPoints(objects.head.shape:getPoints()))
+    -- love.graphics.polygon("line", objects.head.body:getWorldPoints(objects.head.shape:getPoints()))
     love.graphics.draw( objects.head.image, objects.head.body:getX(), objects.head.body:getY(), 0, 0.05, 0.05, 500,  1000, 0, 0 )
 
     love.graphics.polygon("fill", objects.ground.body:getWorldPoints(objects.ground.shape:getPoints()))
     love.graphics.polygon("fill", objects.leftwall.body:getWorldPoints(objects.leftwall.shape:getPoints()))
     love.graphics.polygon("fill", objects.rightwall.body:getWorldPoints(objects.rightwall.shape:getPoints()))
     love.graphics.polygon("fill", objects.roof.body:getWorldPoints(objects.roof.shape:getPoints()))
-
-    -- love.graphics.polygon("line", objects.anchor.body:getWorldPoints(objects.anchor.shape:getPoints()))
-    -- love.graphics.draw( objects.anchor.image, objects.anchor.body:getX(), objects.anchor.body:getY(), 0, 0.2, 0.1, 200,  300, 0, 0 )
 
     for _, obstacle in ipairs(obstacles) do
         love.graphics.setColor(1, 0, 0)
@@ -257,9 +283,5 @@ function checkCollisionObjectHead(object, bodyX, bodyY, bodyWidth, bodyHeight)
         object.x + object.width > bodyX and
         object.y < bodyY + bodyHeight and
         object.y + object.height > bodyY
-end
-
-function fruitParticleExplodeEffect()
-    
 end
 
